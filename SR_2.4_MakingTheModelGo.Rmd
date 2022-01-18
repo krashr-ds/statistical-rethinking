@@ -1,0 +1,174 @@
+---
+title: "R Notebook: 2.4 Making the Model Go"
+output: html_notebook
+---
+
+```{r}
+library(rethinking)
+```
+
+
+Statistical Rethinking; Ch 2, section 2.4
+Using GRID APPROXIMATION to update the POSTERIOR
+
+```{r}
+# Grid Approximation Example (There's not much change when length.out > 100)
+
+# Define the Grid
+p_grid <- seq( from = 0, to = 1, length.out = 50 )
+
+# Define the Prior
+prior <- rep( 1, 50 )
+
+# Compute the Likelihood at each value in the grid
+likelihood <- dbinom( 6, size = 9, prob = p_grid)
+
+# Multiply the likelihood by the prior
+unstd.posterior <- likelihood * prior
+
+# Standardize the Posterior
+posterior <- unstd.posterior / sum(unstd.posterior)
+
+plot( p_grid, posterior, type='b', xlab='Probability of Water', ylab='Posterior Probability')
+mtext( "50 points" )
+
+```
+
+```{r}
+# Grid Approximation Example 2 - define the prior based on the grid values
+
+# Define the Grid
+p_grid <- seq( from = 0, to = 1, length.out = 20 )
+
+# Define the Prior differently based on the outcome of the grid sequence
+prior <- ifelse( p_grid < 0.5, 0, 1 )
+
+# Compute the Likelihood at each value in the grid
+likelihood <- dbinom( 6, size = 9, prob = p_grid)
+
+# Multiply the likelihood by the prior
+unstd.posterior <- likelihood * prior
+
+# Standardize the Posterior
+posterior <- unstd.posterior / sum(unstd.posterior)
+
+plot( p_grid, posterior, type='b', xlab='Probability of Water', ylab='Posterior Probability')
+mtext( "20 points" )
+
+```
+
+
+```{r}
+# Grid Approximation Example 3 - define the prior using exponentiation of grid values with a 'fudge factor'
+
+# Define the Grid
+p_grid <- seq( from = 0, to = 1, length.out = 20 )
+
+# Define the Prior using 'fudged' exponentiation of the grid sequence
+prior <- exp( -5*abs( p_grid - 0.5 ))
+
+# Compute the Likelihood at each value in the grid
+likelihood <- dbinom( 6, size = 9, prob = p_grid)
+
+# Multiply the likelihood by the prior
+unstd.posterior <- likelihood * prior
+
+# Standardize the Posterior
+posterior <- unstd.posterior / sum(unstd.posterior)
+
+plot( p_grid, posterior, type='b', xlab='Probability of Water', ylab='Posterior Probability')
+mtext( "20 points" )
+
+```
+
+```{r}
+# Quadratic Approximation Example
+# The posterior distribution (distribution of the expected mean value) is nearly always Gaussian in shape
+# (Owing to the fact that mean values fluctuate within bounds in a nearly random fashion?)
+# The log(Gaussian) = a parabola or 'quadratic approximation'; we can represent log(Posterior) with a parabola
+#
+# STEPS:
+# 1. Find the posterior mode using an optimization algorithm (e.g. 'climb' the posterior distribution, try to find the peak)
+# 2. Once you find the peak, estimate the curvature near the peak; this is sufficient to compute the quadratic approximation
+#    of the entire posterior distribution
+#
+# Use 'quap' - a flexible model-fitting tool that computes the 'quadratic approximation' of the posterior distribution.
+
+globe.qa <- quap(
+  alist (
+    W ~ dbinom( W+L, p) , #binomial likelihood
+    p ~ dunif(0, 1)       #uniform prior
+  ) , 
+  data = list(W=6, L=3) )
+
+#display summary of quadratic approximation
+precis( globe.qa )
+  
+
+
+
+```
+Assuming the posterior is Gaussian,
+The posterior mean (peak) value is 0.67
+The posterior standard deviation is 0.16
+The 89% interval begins at 0.42 and ends at 0.92
+
+How good is this approximation? Comparing the quadratic approximation to the true posterior.
+
+```{r}
+W <- 6
+L <- 3
+curve( dbeta( x, W+1, L+1 ), from=0, to=1 )
+curve( dnorm( x, 0.67, 0.16 ), lty=2, add = TRUE)
+
+
+```
+Here, the true posterior is the black line and the approximation is the dashed line.
+
+The obvious thing wrong with this approximation is that it assigns positive probability to Pr(x=1), when we know that there is land 
+on Earth and thus Pr(100% Water) is impossible.
+
+As the sample size increases, the distribution improves, to where n=36, the two curves are nearly the same.
+In some models, the quadratic approximation remains terrible, even with thousands of samples. (p. 44)
+
+The quadratic approximation is often = the maximum likelihood estimate (MLE) and its standard error.
+MLEs have some "curious drawbacks" (more on that later).
+
+When the Quadratic Approximation Fails
+A HESSIAN (Ludwig Hesse, Mathematician; 1811-1874) is a square matrix of second derivatives used for many purposes, but in the 
+quadratic approximation, second derivatives of the log of posterior probability with respect to the parameters.
+The second derivative of the log of a Gaussian distribution IS PROPORTIONAL TO ITS INVERSE SQUARED STANDARD DEVIATION (aka precision, p. 76)
+The standard deviation, therefore, can tell us about the parabola's shape. Computing this standard deviation is typically done by computing 
+the HESSIAN, but sometimes the computation goes wrong and can't be figured.
+
+```{r}
+# Markov Chain Monte Carlo Example
+# When a model has hundreds, thousands or tens-of-thousands of parameters, this is the only option. 
+# The function to maximize is NOT KNOWN, but must be computed in pieces.
+# MCMC does not directly approximate the posterior; it draws samples from the posterior and uses their frequency to 
+# calculate the probability of the posterior values.
+
+n_samples <- 1000
+p <- rep( NA, n_samples )
+p[1] <- 0.5
+W <- 6
+L <- 3
+
+for (i in 2:n_samples) {
+  p_new <- rnorm(1, p[i-1], 0.1)
+  if (p_new < 0) p_new <- abs( p_new )
+  if (p_new > 1) p_new <- 2 - p_new
+  q0 <- dbinom( W, W+L, p[i-1] )
+  q1 <- dbinom( W, W+L, p_new )
+  p[i] <- ifelse( runif(1) < q1/q0, p_new, p[i-1] )
+}
+
+# The values in p are samples from the posterior distribution
+
+dens( p, xlim=c(0,1) )
+curve( dbeta( x, W+1, L+1 ), lty=2, add = TRUE)
+
+# THE METROPOLIS ALGORITHM IS EXPLAINED IN Ch. 9
+```
+
+
