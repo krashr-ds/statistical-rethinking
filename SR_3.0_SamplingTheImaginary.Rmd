@@ -1,0 +1,355 @@
+---
+title: "R Notebook: 3.0 Sampling the Imaginary"
+output: html_notebook
+---
+
+Statistical Rethinking Chapter 3
+
+```{r}
+library(rethinking)
+```
+
+
+```{r}
+# Using Bayes Theorem to Calculate the Pr(vampire|postive test for vampirism)
+# Pr(Vampire) = 0.001
+# Pr(Mortal/Non-Vampire) = 1 - 0.001, or 0.999
+# Pr(+ Test|Vampire) = 0.95
+# Pr(+ Test|Mortal) = 0.01
+
+pr.pos.vamp <- 0.95
+pr.pos.mortal <- 0.01
+pr.vamp <- 0.001
+pr.mortal <- 0.999
+
+# First, we calculate the average probability of a positive test under any circumstances:
+# Pr(+) = Pr(+|Vampire) * Pr(Vampire) + Pr(+|Mortal) + Pr(Mortal)
+
+pr.positive <- pr.pos.vamp * pr.vamp + pr.pos.mortal * pr.mortal
+
+# Then, use pr.positive to calculate Pr(Vampire|Positive)
+
+pr.vamp.pos <- pr.pos.vamp * pr.vamp / pr.positive
+
+pr.vamp.pos
+
+
+```
+
+There is only an 8.7% probability that the suspect is actually a vampire.
+
+WORKING WITH SAMPLES FROM THE POSTERIOR DISTRIBUTION
+
+"An integral in a Bayesian context is just the total probability in some interval...once you have samples from the posterior distribution,
+it's just a matter of counting values in the interval."
+
+"Some of the most capable methods of computing the posterior produce nothing but samples" p. 51
+
+```{r}
+# Sampling from a Grid Approximation Posterior
+
+p_grid <- seq( from=0, to=1, length.out = 1000 )
+prob_p <- rep(1, 1000)
+prob_data <- dbinom( 6, size=9, prob=p_grid )
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+# Draw 10,000 samples from this posterior
+# Individual values of p will appear in our sample in proportion to the posterior plausibility of each value
+# sample -> randomly pulls values from a vector, p_grid (grid of parameter values)
+# The probability of each value in p_grid is given by 'posterior'
+samples <- sample( p_grid, prob = posterior, size = 1e4, replace = TRUE)
+
+plot(samples)
+
+
+```
+
+```{r}
+
+dens(samples)
+
+
+```
+
+The estimated density is very similar to the ideal posterior calculated using MCMC at the end of SR 2.4 Notebook.
+
+SUMMARIZING AND INTERPRETING THE POSTERIOR DISTRIBUTION p. 53
+
+Are you asking a question about:
+1) Intervals of defined boundaries, or
+2) Intervals of defined probability mass, or
+3) Questions about point estimates
+
+INTERVALS OF DEFINED BOUNDARIES
+
+What is the posterior probability that the proportion of water on the Earth is less that 50%?
+
+```{r}
+# Add up all the posterior probabilities where the value of p is < 0.5
+sum(posterior[ p_grid < 0.5 ])
+
+```
+About 17% of posterior probability is below 50%; not very likely.
+
+```{r}
+# Calculating the posterior probability where value of p is < 0.5 using samples from the posterior
+
+# Add up the samples below 0.5 and divide by N
+sum( samples < 0.5 ) / 1e4
+
+```
+A very similar answer, but not exactly the same.  This answer rounds to 18%.
+
+```{r}
+# How much probability lies between 0.5 and 0.75? (What is the posterior probability that the amount of water on earth is between 
+#  50% and 75%?)
+
+sum ( samples > 0.5 & samples < 0.75 ) / 1e4
+
+```
+
+About 61%
+
+WHY CAN I USE SUM TO COUNT THE # OF SAMPLES THAT MEET THE LOGICAL CRITERIA?
+Because r converts the logical expression 'samples < 0.5' to a boolean vector, and summing it counts the # of times TRUE appears.
+
+INTERVALS OF DEFINED MASS / aka CONFIDENCE INTERVALS
+
+In the case of intervals of posterior probability, these are called 'Credible Intervals' or 'Compatibility Intervals' -
+A range of parameter values that are compatible with the model and the data
+If the model & data do not inspire confidence, the interval won't either p. 54
+
+Posterior Intervals: two parameters between which there is a specified amount of posterior probability - a probability mass.
+
+```{r}
+# Calculating the lower 80% posterior probability's upper bound
+ quantile (samples , 0.8 
+           )
+```
+
+```{r}
+# The middle 80% interval (lies between 10% and 90%)
+
+quantile ( samples, c(0.1, 0.9
+                      ))
+```
+
+"Intervals of this sort, which assign equal probability mass to each tail, are very common in the scientific literature. We'll call
+them PERCENTILE INTERVALS."  They "do a good job of communicating the shape of a distribution as long as it isn't too asymmetrical".
+
+Do they support inferences about which parameters are consistent with the data?
+Not perfectly.  
+Consider a situation where the posterior distribution is highly skewed - so the most likely value is either 0 or 1, and the next most 
+likely values cluster around it.  
+In a case like this, the percentile interval will not correctly identify the most likely values because it treats the tails as having 
+equal probability mass.
+Then, we need the HPDI, "Highest Posterior Density Interval", which will find the narrowest region containing n% of the posterior probability.  This region will ALWAYS contain the most likely parameter value.
+
+
+```{r}
+
+HPDI( samples, prob = 0.5 )
+
+```
+
+This interval captures the parameters with the highest posterior probability.  The width is about 19%.
+
+This really only matters when the posterior distribution is skewed / not normal.
+
+HPDI is more computationally intensive than PI and suffers from greater 'simulation variance' (sensitive to the # of samples drawn) p. 57
+
+WHAT DO COMPATIBILITY INTERVALS MEAN? 
+
+Common to hear that a 95% 'confidence interval' means that there is a 95% probability that the true parameter value lies within the interval. But this is NEVER CORRECT.  What it means is "IF WE REPEATED THIS ANALYSIS A VERY LARGE # OF TIMES, 95% OF THE COMPUTED INTERVALS WOULD CONTAIN THE TRUE PARAMETER VALUE".  
+
+A 95% INTERVAL DOES NOT CONTAIN THE TRUE VALUE 95% OF THE TIME. It contains the value the model 'believes' to be true, 95% of the time.
+The TRUE value is a 'large world' number, and the CI is only a 'small world' / model's world number. p. 58
+
+POINT ESTIMATION
+
+Given the posterior probability, what # should I report? 
+Probably can't answer this question; probably can't produce a single point estimate.
+Instead, may be able to produce a # to 'summarize the posterior' - but how depends on research question(s)
+
+parameter value with the highest possible probability (MAP or maximum a posteriori estimate)
+
+```{r}
+
+p_grid[ which.max(posterior) ]
+
+```
+
+```{r}
+# Using samples to compute the MAP
+
+chainmode( samples, adj=0.01 )
+
+```
+
+```{r}
+# Minimizing expected loss (distance between the estimated and 'true' value) by using the median
+
+mean(samples)
+median(samples)
+
+# estimating the loss (quantity of inaccuracy associated with) guessing that true value = 0.5
+# compute the weighted average inaccuracy
+sum( posterior * abs(0.5 - p_grid) )
+
+#computing a loss vector for every possible guess at the true value of p contained in the vector p_grid
+loss <- sapply( p_grid, function(d) sum(posterior*abs( d - p_grid )) )
+
+#the parameter that minimizes loss:
+p_grid[ which.min((loss)) ]
+
+```
+Note the similarity between the last value and median(samples).
+
+Another often use loss function, quadratic loss ((d-p)^2) = the posterior mean, the first value.
+
+Choice of loss function and point estimate are very specific to the data, model, research and use of the outcome data.  Depending on all of these we might choose to use one of these methods, or we might come up with something that makes sense in our given context.
+
+
+SAMPLING TO SIMULATE PREDICTION
+
+We would want to generate 'implied' observations from a model for "at least 4 reasons":
+1. Sampling from the prior helps with model design
+2. Checking whether or not the result is plausible / the model worked correctly
+3. To be sure software is working correctly
+4. Simulate predictions / model evaluation
+
+In the globe-tossing example, where we are trying to model the % water on the Earth's surface, there is a fixed true proportion of water, p, that exists and is the target of our inference.  Likelihood functions work both ways, so the same process that allows us to infer the plausibility of each possible value of p between 0 and 1 after an observation also allows us to simulate observations that the model implies. p. 62
+
+For every observation, x, likelihood(x) produces plausibility(x) until we have a distribution of all plausibilities for all xs. 
+Produces a distribution of possible observations we can sample from / "generative"
+
+In the case of the globe-tossing model, since we are dealing with 2 possible outcomes - water or not-water - simulated data arises from a binomial likelihood function:
+
+Pr(W|N, p) = N! / W! (N-W)! * p^W(1-p)^N-W
+where W is an observed count of 'water', N is the number of tosses
+
+```{r}
+# Sampling using a convenient R function that randomly samples from the binomial distribution
+# Taking 100,000 samples with starting prob. of 70% (about the prob. of water on planet Earth)
+dummy_w <- rbinom( 1e5, size=2, prob=0.7 )
+table(dummy_w)/1e5
+
+```
+The likelihood of no water in 3 samples is 9%
+The likelihood of 1 water in 3 samples is 42%
+The likelihood of 2 water in 3 samples is 49%
+
+```{r}
+# The exact realized frequencies fluctuate from simulation to simulation
+
+dummy_w <- rbinom( 1e5, size=9, prob=0.7 ) 
+simplehist( dummy_w, xlab="dummy water count" )
+
+```
+
+Most of the time, the expected observation DOES NOT contain water in its true proportion, 0.7
+There is a one to many relationship between data and data-generating processes p. 63
+
+Typical approaches create SAMPLING DISTRIBUTIONS to draw inferences about parameters.  In Bayesian analysis, the posterior is deduced logically and then samples are taken from it to AID in inference.  Sampling is a mathematical device and produces only small world data.
+
+
+HOW WELL DOES THE MODEL REPRODUCE the DATA USED TO EDUCATE IT? "Retrodictions" p. 64
+IS THE MODEL ADEQUATE? 
+  How / where does the model fail to describe the data?
+  
+```{r}
+# Performing Model Checks
+# Propagating observation & parameter uncertainty using the POSTERIOR PREDICTIVE DISTRIBUTION
+# Draw n sampling distributions from the posterior probability and imply predictions, then combine the distributions of the 
+# simulated observations for all parameter values weighted by the posterior probability 
+
+w <- rbinom( 1e4, size=9, prob=samples )
+simplehist(w)
+
+```
+
+For each sampled value in samples, a random binomial observation is generated
+Since the sampled values appear in proportion to their posterior probabilities, the resulting simulated observations are averaged over the posterior
+In this case, samples are consistent with the original data
+p. 66
+
+Model checking is inherently subjective, and domain expertise is necessary.
+
+```{r}
+data(homeworkch3)
+
+allbirths <- c(birth1, birth2)
+p_grid <- seq(from = 0, to = 1, length.out = 1e3)
+prior <- rep(1, 1e3)
+likelihood <- dbinom(sum(allbirths), size = length(allbirths), prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+plot(x = p_grid, y = posterior, type = "l")
+
+```
+```{r}
+p_grid[which.max(posterior)]
+
+```
+
+The parameter value that maximizes posterior probability is p = 0.55
+
+```{r}
+# Sample with replacement to draw 10,000 (1e5) random parameter values from the posterior distribution
+# Calculate the HPDI (Highest Posterior Density Intervals) at 50%, 89% and 97%
+
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+HPDI(samples, c(.50, .89, .97))
+
+```
+
+The 97% HPDI is between 0.482 and 0.633
+
+```{r}
+# Simulating 10,000 sample-draws to simulate 200 births each time:
+ppc <- rbinom(1e4, size = 200, prob = samples)
+
+dens(ppc)
+# add the count of male births in the original data
+abline(v = sum(allbirths), col = "blue", lwd=2)
+# add the median of simulations
+abline(v = median(ppc), col = "red", lty=2, lwd=2)
+
+```
+The count of male births in the original data = the median of the sampled data; the two lines are right on top of each other!
+
+```{r}
+# The likelihood of FIRST BIRTHS being boys
+
+likelihood <- dbinom(sum(birth1), size = length(birth1), prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+ppc <- rbinom(1e4, size = 100, prob = samples)
+dens(ppc)
+abline(v = sum(birth1), col = "blue")
+```
+
+The likelihood of first births being boys is lower; the observed value is 51 boys (less than 1/2 of the observed for allbirths)
+
+```{r}
+# Sample births from subset where firstborns were girls
+subsample <- sum(birth1 == 0)
+pcc <- rbinom(1e4, size = subsample, prob = samples)
+# Probabilities of a boy after a girl
+dens(pcc)
+
+# actual # of boys born after a girl
+ngirlthenboy <- sum(birth2[birth1 == 0])
+
+# add the count of male births after a girl in the original data
+abline(v = ngirlthenboy, col = "blue", lwd=2)
+# add the median of simulations
+abline(v = median(pcc), col = "red", lty=2, lwd=2)
+median(pcc)
+```
+
+The median predicted likelihood of a boy born after a girl according to the model was 25%, but the reality was about 39%.
+Something other than random chance may be at play, in determining boy births after a girl birth.
+
